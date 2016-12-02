@@ -63,6 +63,9 @@ class Flagger(executor.Executor):
         sets up known control configuration based on control channel messages
         """
         channel = config.control_channel
+        if not self.slacker.channel_exists(channel):
+            self.ds.warning("Flagger control channel does not exist, cannot run. Please create #{}.".format(channel))
+            return False
         cid = self.slacker.get_channelid(channel)
         messages = self.slacker.get_messages_in_time_range(0, cid, time.time())
         control = {}
@@ -103,6 +106,7 @@ class Flagger(executor.Executor):
         self.dprint("control: {}".format(json.dumps(self.control, indent=4)))
         self.emoji = [x['emoji'] for x in self.control.values()]
         self.initialize_emoji_aliases()
+        return True
 
     def initialize_emoji_aliases(self):
         """
@@ -134,7 +138,8 @@ class Flagger(executor.Executor):
             equivalents[target_value].append(emoji)
         self.emoji_equivalents = equivalents
         self.dprint("equivalents: {}".format(json.dumps(self.emoji_equivalents, indent=4)))
-        self.dprint("floppy_disk: {}".format(self.emoji_equivalents['floppy_disk']))
+        if "floppy_disk" in self.emoji_equivalents.keys():
+            self.dprint("floppy_disk: {}".format(self.emoji_equivalents['floppy_disk']))
 
     def message_destination(self, message):
         """
@@ -156,7 +161,8 @@ class Flagger(executor.Executor):
                 pass
         d("reactions: {}".format(reactions))
         d("emoji_equivalents:\n{}".format(json.dumps(self.emoji_equivalents, indent=4)))
-        d("floppy_disk: {}".format(self.emoji_equivalents['floppy_disk']))
+        if "floppy_disk" in self.emoji_equivalents.keys():
+            d("floppy_disk: {}".format(self.emoji_equivalents['floppy_disk']))
         for reaction in reactions:
             count = reaction['count']
             current_emoji = reaction['name']
@@ -215,14 +221,17 @@ class Flagger(executor.Executor):
             url = "http://{}.slack.com/archives/{}/p{}".format(slack_name, channel, ts)
             m = "*@{}* said in *#{}* _'{}'_ ({})".format(author_name, channel, text, url)
             for output_channel in channels:
-                md = "Saying {} to {}".format(m, output_channel)
-                self.dprint(md)
-                if not self.debug and self.destalinator_activated:
-                    self.sb.say(output_channel, m)
+                if self.slacker.channel_exists(output_channel):
+                    md = "Saying {} to {}".format(m, output_channel)
+                    self.dprint(md)
+                    if not self.debug and self.destalinator_activated:
+                        self.sb.say(output_channel, m)
+                else:
+                    self.ds.warning("Attempted to announce in {}, but channel does not exist.".format(output_channel))
 
     def flag(self):
-        self.initialize_control()
-        self.announce_interesting_messages()
+        if self.initialize_control():
+            self.announce_interesting_messages()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Flag interesting Slack messages.')
